@@ -77,6 +77,16 @@ typedef int32_t i32;
 
 #define EXT2_NAME_LEN 255
 
+// Set and clear bit macros
+#define set_bit(bitmap, index) do { \
+    bitmap[index / 8] |= (1 << (index % 8)); \
+} while (0)
+
+#define clear_bit(bitmap, index) do { \
+    bitmap[index / 8] &= ~(1 << (index % 8)); \
+} while (0)
+
+
 struct ext2_superblock {
 	u32 s_inodes_count;
 	u32 s_blocks_count;
@@ -280,13 +290,32 @@ void write_block_bitmap(int fd)
 		errno_exit("lseek");
 	}
 
-	// TODO It's all yours
-	u8 map_value[BLOCK_SIZE];
+ 	// Initialize the bitmap to all zeros
+    u8 map_value[NUM_BLOCKS / 8]; // 1024 bits = 128 bytes
+    memset(map_value, 0, NUM_BLOCKS / 8);
 
-	if (write(fd, map_value, BLOCK_SIZE) != BLOCK_SIZE)
-	{
-		errno_exit("write");
-	}
+    // Set bits for reserved blocks
+    int reserved_blocks[] = {
+        SUPERBLOCK_BLOCKNO,
+        BLOCK_GROUP_DESCRIPTOR_BLOCKNO,
+        BLOCK_BITMAP_BLOCKNO,
+        INODE_BITMAP_BLOCKNO,
+        INODE_TABLE_BLOCKNO,
+        ROOT_DIR_BLOCKNO,
+        LOST_AND_FOUND_DIR_BLOCKNO,
+        HELLO_WORLD_FILE_BLOCKNO
+    };
+
+    int num_reserved_blocks = sizeof(reserved_blocks) / sizeof(BLOCK_SIZE);
+
+    for (int i = 0; i < num_reserved_blocks; i++) {
+        set_bit(map_value, reserved_blocks[i]);
+    }
+
+	// Write the bitmap to disk
+    if (write(fd, map_value, NUM_BLOCKS / 8) != NUM_BLOCKS / 8) {
+        errno_exit("write");
+    }
 }
 
 void write_inode_bitmap(int fd)
@@ -297,10 +326,24 @@ void write_inode_bitmap(int fd)
 		errno_exit("lseek");
 	}
 
-	// TODO It's all yours
-	u8 map_value[BLOCK_SIZE];
+	// Initialize the bitmap to all zeros
+    u8 map_value[NUM_INODES / 8];
+    memset(map_value, 0, NUM_INODES / 8);
 
-	if (write(fd, map_value, BLOCK_SIZE) != BLOCK_SIZE)
+    // Set bits for reserved blocks
+    int reserved_inodes[] = {
+        LOST_AND_FOUND_INO,
+		HELLO_WORLD_INO,
+		HELLO_INO
+    };
+
+    int num_reserved_inodes = sizeof(reserved_inodes) / sizeof(reserved_inodes[0]);
+
+    for (int i = 0; i < num_reserved_inodes; i++) {
+        set_bit(map_value, reserved_inodes[i]);
+    }
+
+	if (write(fd, map_value, NUM_INODES / 8) != NUM_INODES / 8)
 	{
 		errno_exit("write");
 	}
