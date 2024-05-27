@@ -516,7 +516,29 @@ void write_lost_and_found_dir_block(int fd) {
 
 void write_hello_world_file_block(int fd)
 {
-	// TODO It's all yours
+	off_t off = BLOCK_OFFSET(HELLO_WORLD_FILE_BLOCKNO);
+	off = lseek(fd, off, SEEK_SET);
+	if (off == -1)
+	{
+		errno_exit("lseek");
+	}
+
+	char *hello_world = "Hello world\n";
+	ssize_t size = strlen(hello_world);
+	if (write(fd, hello_world, size) != size)
+	{
+		errno_exit("write");
+	}
+
+	// Fill the rest of the block with zeros
+    ssize_t bytes_remaining = BLOCK_SIZE - size;
+    char zeros[bytes_remaining]; 
+    memset(zeros, 0, bytes_remaining);  
+    if (write(fd, zeros, bytes_remaining) != bytes_remaining)
+    {
+        errno_exit("write");
+    }
+
 }
 
 int main(int argc, char *argv[]) {
