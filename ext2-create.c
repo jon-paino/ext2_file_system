@@ -179,11 +179,11 @@ struct ext2_dir_entry {
 	} while (0)
 
 #define set_bit(bitmap, index) do { \
-    bitmap[index / 8] |= (1 << (index % 8)); \
+    bitmap[(index - 1) / 8] |= (1 << ((index - 1) % 8)); \
 } while (0)
 
 #define clear_bit(bitmap, index) do { \
-    bitmap[index / 8] &= ~(1 << (index % 8)); \
+    bitmap[(index - 1) / 8] &= ~(1 << ((index - 1) % 8)); \
 } while (0)
 
 u32 get_current_time() {
@@ -214,8 +214,8 @@ void write_superblock(int fd) {
 	superblock.s_first_data_block = SUPERBLOCK_BLOCKNO; /* First Data Block */
 	superblock.s_log_block_size = 0;					/* 1024 */
 	superblock.s_log_frag_size = 0;						/* 1024 */
-	superblock.s_blocks_per_group = NUM_BLOCKS; // All blocks in one group for simplicity
-    superblock.s_frags_per_group = NUM_BLOCKS; // Same as blocks per group
+	superblock.s_blocks_per_group = 8*NUM_BLOCKS; // All blocks in one group for simplicity
+    superblock.s_frags_per_group = 8*NUM_BLOCKS; // Same as blocks per group
     superblock.s_inodes_per_group = NUM_INODES; // All inodes in one group for simplicity
 	superblock.s_mtime = 0;				/* Mount time */
 	superblock.s_wtime = current_time;	/* Write time */
@@ -280,17 +280,25 @@ void write_block_group_descriptor_table(int fd) {
 	}
 }
 
-void write_block_bitmap(int fd)
-{
-	off_t off = lseek(fd, BLOCK_OFFSET(BLOCK_BITMAP_BLOCKNO), SEEK_SET);
-	if (off == -1)
-	{
-		errno_exit("lseek");
-	}
+void print_bitmap(const u8 *bitmap, int size) {
+    for (int i = 0; i < size; i++) {
+        for (int bit = 0; bit < 8; bit++) {
+            printf("%d", (bitmap[i] & (1 << bit)) ? 1 : 0);
+        }
+        printf(" ");
+    }
+    printf("\n");
+}
 
- 	// Initialize the bitmap to all zeros
-    u8 map_value[NUM_BLOCKS / 8]; // 1024 bits = 128 bytes
-    memset(map_value, 0, NUM_BLOCKS / 8);
+void write_block_bitmap(int fd) {
+    off_t off = lseek(fd, BLOCK_OFFSET(BLOCK_BITMAP_BLOCKNO), SEEK_SET);
+    if (off == -1) {
+        errno_exit("lseek");
+    }
+
+    // Initialize the bitmap to all zeros
+    u8 map_value[NUM_BLOCKS / 8]; // 128 bytes
+    memset(map_value, 0, sizeof(map_value));
 
     // Set bits for reserved blocks
     int reserved_blocks[] = {
@@ -304,48 +312,76 @@ void write_block_bitmap(int fd)
         HELLO_WORLD_FILE_BLOCKNO
     };
 
-    int num_reserved_blocks = sizeof(reserved_blocks) / sizeof(BLOCK_SIZE);
+    int num_reserved_blocks = sizeof(reserved_blocks) / sizeof(reserved_blocks[0]);
 
     for (int i = 0; i < num_reserved_blocks; i++) {
+        // Adjust for 1-based indexing by subtracting 1
         set_bit(map_value, reserved_blocks[i]);
     }
 
-	// Write the bitmap to disk
-    if (write(fd, map_value, NUM_BLOCKS / 8) != NUM_BLOCKS / 8) {
+    // Mark additional blocks 6-20 as used
+    for (int i = 6; i <= 20; i++) {
+        set_bit(map_value, i);
+    }
+
+    // Write the bitmap to disk
+    if (write(fd, map_value, sizeof(map_value)) != sizeof(map_value)) {
+        errno_exit("write");
+    }
+
+    // Write padding to fill the rest of the block
+    u8 padding[BLOCK_SIZE - sizeof(map_value)];
+    memset(padding, 0, sizeof(padding));
+
+    if (write(fd, padding, sizeof(padding)) != sizeof(padding)) {
         errno_exit("write");
     }
 }
 
-void write_inode_bitmap(int fd)
-{
-	off_t off = lseek(fd, BLOCK_OFFSET(INODE_BITMAP_BLOCKNO), SEEK_SET);
-	if (off == -1)
-	{
-		errno_exit("lseek");
-	}
 
-	// Initialize the bitmap to all zeros
-    u8 map_value[NUM_INODES / 8];
-    memset(map_value, 0, NUM_INODES / 8);
+void write_inode_bitmap(int fd) {
+    off_t off = lseek(fd, BLOCK_OFFSET(INODE_BITMAP_BLOCKNO), SEEK_SET);
+    if (off == -1) {
+        errno_exit("lseek");
+    }
 
-    // Set bits for reserved blocks
+    // Initialize the bitmap to all zeros
+    u8 map_value[NUM_INODES / 8]; // 16 bytes
+    memset(map_value, 0, sizeof(map_value));
+
+    // Set bits for reserved inodes
     int reserved_inodes[] = {
+        EXT2_BAD_INO,
+        EXT2_ROOT_INO,
+        EXT2_GOOD_OLD_FIRST_INO,
         LOST_AND_FOUND_INO,
-		HELLO_WORLD_INO,
-		HELLO_INO
+        HELLO_WORLD_INO,
+        HELLO_INO
     };
-
     int num_reserved_inodes = sizeof(reserved_inodes) / sizeof(reserved_inodes[0]);
 
     for (int i = 0; i < num_reserved_inodes; i++) {
         set_bit(map_value, reserved_inodes[i]);
     }
 
-	if (write(fd, map_value, NUM_INODES / 8) != NUM_INODES / 8)
-	{
-		errno_exit("write");
-	}
+	// Mark additional blocks 3-10 as used
+    for (int i = 3; i <= 10; i++) {
+        set_bit(map_value, i);
+    }
+    // Write the bitmap to disk
+    if (write(fd, map_value, sizeof(map_value)) != sizeof(map_value)) {
+        errno_exit("write");
+    }
+
+    // Write padding to fill the rest of the block
+    u8 padding[BLOCK_SIZE - sizeof(map_value)];
+    memset(padding, 0, sizeof(padding));
+
+    if (write(fd, padding, sizeof(padding)) != sizeof(padding)) {
+        errno_exit("write");
+    }
 }
+
 
 void write_inode(int fd, u32 index, struct ext2_inode *inode) {
 	off_t off = BLOCK_OFFSET(INODE_TABLE_BLOCKNO)
