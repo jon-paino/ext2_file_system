@@ -290,6 +290,15 @@ void print_bitmap(const u8 *bitmap, int size) {
     printf("\n");
 }
 
+void print_current_offset(int fd) {
+    off_t current_offset = lseek(fd, 0, SEEK_CUR);
+    if (current_offset == -1) {
+        perror("lseek");
+    } else {
+        printf("Current offset: 0x%llx\n", (long long)current_offset);
+    }
+}
+
 void write_block_bitmap(int fd) {
     off_t off = lseek(fd, BLOCK_OFFSET(BLOCK_BITMAP_BLOCKNO), SEEK_SET);
     if (off == -1) {
@@ -299,7 +308,7 @@ void write_block_bitmap(int fd) {
     // Initialize the bitmap to all zeros
     u8 map_value[NUM_BLOCKS / 8]; // 128 bytes
     memset(map_value, 0, sizeof(map_value));
-
+	map_value[127] = 0x80;
     // Set bits for reserved blocks
     int reserved_blocks[] = {
         SUPERBLOCK_BLOCKNO,
@@ -328,11 +337,10 @@ void write_block_bitmap(int fd) {
     if (write(fd, map_value, sizeof(map_value)) != sizeof(map_value)) {
         errno_exit("write");
     }
-
-    // Write padding to fill the rest of the block
+	// Prepare the padding array
     u8 padding[BLOCK_SIZE - sizeof(map_value)];
-    memset(padding, 0, sizeof(padding));
-
+    memset(padding, 0xFF, sizeof(padding)); // Initialize with zeros
+    // Write the padding array to the file
     if (write(fd, padding, sizeof(padding)) != sizeof(padding)) {
         errno_exit("write");
     }
@@ -346,7 +354,7 @@ void write_inode_bitmap(int fd) {
     }
 
     // Initialize the bitmap to all zeros
-    u8 map_value[NUM_INODES / 8]; // 16 bytes
+    u8 map_value[NUM_INODES / 8]; // 16 bytes for 128 inodes
     memset(map_value, 0, sizeof(map_value));
 
     // Set bits for reserved inodes
@@ -364,23 +372,26 @@ void write_inode_bitmap(int fd) {
         set_bit(map_value, reserved_inodes[i]);
     }
 
-	// Mark additional blocks 3-10 as used
+    // Mark additional inodes 3-10 as used
     for (int i = 3; i <= 10; i++) {
         set_bit(map_value, i);
     }
+
     // Write the bitmap to disk
     if (write(fd, map_value, sizeof(map_value)) != sizeof(map_value)) {
         errno_exit("write");
     }
 
-    // Write padding to fill the rest of the block
+	// Write padding to fill the rest of the block
     u8 padding[BLOCK_SIZE - sizeof(map_value)];
-    memset(padding, 0, sizeof(padding));
+    memset(padding, 0xFF, sizeof(padding));
 
     if (write(fd, padding, sizeof(padding)) != sizeof(padding)) {
         errno_exit("write");
     }
+
 }
+
 
 
 void write_inode(int fd, u32 index, struct ext2_inode *inode) {
