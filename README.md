@@ -1,6 +1,6 @@
 # Hey! I'm Filing Here
 
-In this lab, I successfully implemented the following TODO
+The lab involves constructing a makeshift ext2 file system by setting up a disk image to simulate storage, creating necessary data structures like inodes and directory entries, and implementing functions for file creation, deletion, and reading. You initialized the disk image, allocated space for superblock, group descriptor, block bitmap, inode bitmap, inode table, and data blocks, then implemented file operations by manipulating these structures to mimic ext2 behavior. This included writing code to handle block allocation, directory management, and file system consistency.
 
 ## Building
 
